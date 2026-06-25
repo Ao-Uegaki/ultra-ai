@@ -58,7 +58,7 @@ ultra-ai-safe       # 同じ設定で、ただし全 hook 無効(壊れた hook 
 ## セットアップ
 
 ```sh
-git clone <this-repo> ultra-ai
+git clone https://github.com/Ao-Uegaki/ultra-ai.git
 cd ultra-ai
 ./install.sh
 ```
