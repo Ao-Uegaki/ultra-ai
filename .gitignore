@@ -1,0 +1,22 @@
+# --- General ---
+.DS_Store
+node_modules/
+__pycache__/
+*.pyc
+
+# --- claude-home doubles as CLAUDE_CONFIG_DIR: Claude Code writes runtime state
+#     (sessions/, projects/, cache/, history.jsonl, .credentials*, etc.) here.
+#     Allowlist style: ignore everything under it, then re-include ONLY curated config. ---
+claude-home/*
+!claude-home/CLAUDE.md
+!claude-home/settings.json
+!claude-home/agents/
+!claude-home/hooks/
+!claude-home/rules/
+!claude-home/skills/
+!claude-home/workflows/
+
+# Defense in depth: never track secrets or per-repo state, even if nested.
+claude-home/**/.credentials*
+claude-home/state/
+claude-home/**/*.log

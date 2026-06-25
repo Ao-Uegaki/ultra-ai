@@ -1,0 +1,18 @@
+#!/bin/sh
+# ultra-ai-safe — same config root as ultra-ai, but with ALL hooks disabled.
+#
+# Escape hatch: if a broken hook (e.g. a Stop hook stuck in a block loop) prevents you
+# from working or even exiting Claude, launch with this instead. Shares bin/_lib.sh.
+
+self=$0
+while [ -h "$self" ]; do
+  d=$(cd -P "$(dirname "$self")" && pwd)
+  self=$(readlink "$self")
+  case $self in /*) ;; *) self=$d/$self ;; esac
+done
+ULTRA_BIN=$(cd -P "$(dirname "$self")" && pwd)
+. "$ULTRA_BIN/_lib.sh"
+
+require_claude
+ua_banner "$@"
+exec claude --settings '{"disableAllHooks":true}' --name ultra-ai-safe "$@"

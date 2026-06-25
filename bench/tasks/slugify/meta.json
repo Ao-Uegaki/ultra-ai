@@ -1,0 +1,6 @@
+{
+  "id": "slugify",
+  "lang": "python",
+  "test_cmd": ["python3", "-m", "unittest", "-q", "test_oracle"],
+  "oracle_timeout": 60
+}

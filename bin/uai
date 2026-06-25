@@ -1,0 +1,24 @@
+#!/bin/sh
+# ultra-ai — launch Claude Code with the ultra-ai config root (claude-home).
+#
+# Resolves its own location (following symlinks) so it works wherever the repo is
+# cloned or symlinked onto PATH — no hard-coded paths. See bin/_lib.sh for the
+# shared CLAUDE_CONFIG_DIR setup and the claude existence / version checks.
+
+self=$0
+while [ -h "$self" ]; do
+  d=$(cd -P "$(dirname "$self")" && pwd)
+  self=$(readlink "$self")
+  case $self in /*) ;; *) self=$d/$self ;; esac
+done
+ULTRA_BIN=$(cd -P "$(dirname "$self")" && pwd)
+. "$ULTRA_BIN/_lib.sh"
+
+require_claude
+check_version
+ua_banner "$@"
+# 通知の左アイコン用の自前バンドルを冪等生成(初回/ロゴ変更時のみ実働)。起動を待たせないよう
+# 背景で実行し、失敗は素通り(UA_NOTIFY_APP=0 で無効)。
+ua_notifier_ensure &
+# 起動時 ultracode を既定 ON で注入(UA_ULTRACODE=0 で無効=停止スイッチ・そのとき素の xhigh)。
+ua_exec_claude ultra-ai "$@"

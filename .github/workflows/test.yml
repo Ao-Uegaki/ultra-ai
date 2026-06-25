@@ -1,0 +1,25 @@
+# full スイートの安全網(CI)。ローカルの gate.py[Stop] は開発時の impacted ループ、
+# こちらは clone/PR/素 claude をすり抜けさせない full discover の安全網=役割分担。
+# 外部依存ゼロ(pure stdlib unittest)なので pip install は不要。
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unittest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"   # tomllib を使うため 3.11+ 必須
+      # temp git repo を作るテスト(_helpers.init_git_repo)が転ばぬよう identity を保険で設定
+      - name: configure git identity
+        run: |
+          git config --global user.email "ci@example.com"
+          git config --global user.name "ci"
+      - name: run unit tests
+        run: python3 -m unittest discover -s tests

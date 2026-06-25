@@ -1,0 +1,9 @@
+# 使い捨て sandbox(各 run の作業コピー)・run 成果物は追跡しない。
+.sandboxes/
+results/
+
+# control arm の config dir は settings.json 以外すべて runtime=絶対に追跡しない
+# (認証 .claude.json / backups/ / cache/ / plugins/ / projects/ / state/ / history.jsonl …)。
+# claude をこの dir で起動すると認証・キャッシュ等が生成されるため、ホワイトリスト方式で固める。
+arm-control-config/*
+!arm-control-config/settings.json
