@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""bench/compare.py — 2つのセッション transcript を cost-weighted で比較する A/B 採点器。
+"""bench/compare.py — 2つのセッション transcript を cost-weighted(コストで重み付け)で比較する A/B 採点器。
 
 ua-bench は「学習レイヤ ON/OFF を同一タスクで回し、どちらが安く・手戻り少なく済んだか」を見る道具。
 headless(`claude -p`)で Stop hook が確実に発火する保証が**無い**(公式 docs 未保証。`--bare` は hook を
 スキップ、`--init`/`--init-only` だけが hook を明示起動)。よって **タスク実行は in-session 手動**
-(control: `UA_AUTOAPPLY=0` / treatment: 既定)とし、本スクリプトは **transcript から決定論で採点**する。
+(control: `UA_AUTOAPPLY=0` / treatment: 既定)とし、本スクリプトは **transcript から機械的に(乱数を使わず)採点**する。
 transcript は hook の有無に関わらず必ず書かれるので、`metrics.py` を再利用して安定に集計できる。
 
-**計測はゲートにしない**(監視・洞察用)。lower-is-better の指標(コスト/ターン/peak context)と
-higher-is-better(cache_read=再利用が多いほど安い)を区別して「どちらが良いか」を出す。
+**計測はゲートにしない**(監視・洞察用)。小さいほど良い指標(コスト/ターン/peak context)と
+大きいほど良い指標(cache_read=再利用が多いほど安い)を区別して「どちらが良いか」を出す。
 
 使い方: `python3 bench/compare.py <control.jsonl> <treatment.jsonl>`
 """
@@ -31,6 +31,9 @@ _METRICS = [
 
 
 def _better(control, treatment, lower_is_better: bool) -> str:
+    """control と treatment のどちらが良いかを返す。
+    lower_is_better=True なら小さい方が勝ち(コスト/ターン/peak context)、
+    False なら大きい方が勝ち(cache_read=再利用が多いほど安い)。同値は "tie"。"""
     if control == treatment:
         return "tie"
     treatment_wins = (treatment < control) if lower_is_better else (treatment > control)

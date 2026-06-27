@@ -1,6 +1,6 @@
 """Unit tests for bench/transcript_metrics.py (run: python3 -m unittest).
 
-これまで ab_report/ab_run 経由の間接被覆しかなかったモジュールを直接テストする。
+これまで ab_report/ab_run 経由で間接的にしかテストされていなかったモジュールを直接テストする。
 churn(コード書き直し=手戻り)の数え方・metrics 抽出・extract の合成 を固定する。API は呼ばない。
 """
 import json
@@ -26,6 +26,8 @@ def _edit(file_path: str):
 
 
 class TestChurnOf(unittest.TestCase):
+    """churn_of が編集回数と再編集(手戻り)を正しく数えることを守る。"""
+
     def test_counts_edits_and_reedits(self):
         with tempfile.TemporaryDirectory() as d:
             tp = _write_transcript(Path(d) / "t.jsonl", [
@@ -57,6 +59,8 @@ class TestChurnOf(unittest.TestCase):
 
 
 class TestMetricsOf(unittest.TestCase):
+    """metrics_of が summary から指標を取り出し、欠損は None に下げることを守る。"""
+
     def test_pulls_all_metric_labels(self):
         summary = {"total": {"weighted_cost": 1.5, "cache_read": 9},
                    "main": {"weighted_cost": 1.0},
@@ -68,12 +72,14 @@ class TestMetricsOf(unittest.TestCase):
         self.assertEqual(out["cache_read_total"], 9)
 
     def test_missing_fields_degrade_to_none(self):
-        out = tm.metrics_of({})  # getter が KeyError → None へ縮退(例外を投げない)
+        out = tm.metrics_of({})  # getter が KeyError → None へフォールバック(例外を投げない)
         self.assertTrue(all(v is None for v in out.values()))
         self.assertEqual(set(out), {label for label, _, _ in compare._METRICS})
 
 
 class TestExtract(unittest.TestCase):
+    """extract が metrics と churn を1つの dict に合成することを守る。"""
+
     def test_merges_metrics_and_churn(self):
         with tempfile.TemporaryDirectory() as d:
             tp = _write_transcript(Path(d) / "t.jsonl", [[_edit("a.py"), _edit("a.py")]])

@@ -168,7 +168,7 @@ def stop_notification(overall: str, *, escalate: bool, cwd: str, branch: str | N
                 "cwd": cwd, "branch": branch, "wall_clock_s": wall_clock_s,
                 "session_id": session_id}
     if overall == common.FAIL and escalate:
-        return {"kind": "stuck", "label": "検証が詰まった(要確認)", "detail": fail_headline,
+        return {"kind": "stuck", "label": "検証が進まない(要確認)", "detail": fail_headline,
                 "cwd": cwd, "branch": branch, "wall_clock_s": wall_clock_s,
                 "session_id": session_id}
     return None
@@ -284,14 +284,18 @@ _CKPT_HINT = ("ⓘ ultra-ai: PASS です。追跡済みの未コミット変更�
               "/ua-checkpoint でこの PASS 状態を保存できます(自動コミットはしません)。")
 _REFACTOR_HINT = ("ⓘ ultra-ai: PASS です。直近の差分が大きめです — "
                   "/ua-refactor で挙動不変の整理(型分類→小さく適用→型別コミット)を検討できます。")
+_SHIP_HINT = ("ⓘ ultra-ai: PASS です。push していないコミットがあります — "
+              "/ua-ship で feature ブランチへ push + PR(ブランチ・公開可否・露出を確認)できます。")
 
 
 def _suggest_cfg() -> dict:
     """提案層の on/off と閾値(env で上書き可・既定 ON / 30分 / 4ファイル / 80行)。"""
     return {"ckpt_on": common.flag_enabled("SUGGEST_CHECKPOINT"),
             "refactor_on": common.flag_enabled("SUGGEST_REFACTOR"),
+            "ship_on": common.flag_enabled("SUGGEST_SHIP"),
             "ckpt_throttle_sec": common.env_int("CKPT_THROTTLE_SEC", 1800),
             "refactor_throttle_sec": common.env_int("REFACTOR_THROTTLE_SEC", 1800),
+            "ship_throttle_sec": common.env_int("SHIP_THROTTLE_SEC", 1800),
             "refactor_min_files": common.env_int("REFACTOR_MIN_FILES", 4),
             "refactor_min_added": common.env_int("REFACTOR_MIN_ADDED", 80)}
 
@@ -303,7 +307,7 @@ def _throttle_ok(last_ts, now: float, window: int) -> bool:
 
 def decide_suggestions(prior_suggest: dict, sig: str, *, tracked: int,
                        files_changed: int, added: int, now: float,
-                       cfg: dict) -> tuple[list, dict]:
+                       cfg: dict, ahead: int = 0) -> tuple[list, dict]:
     """出す提案文言と、更新後の suggest state を返す(純関数・テスト容易)。
 
     1状態1回(`*_sig != sig`)+ 時間 throttle(`*_ts`)の二重 dedup。skill を使うと
@@ -320,7 +324,20 @@ def decide_suggestions(prior_suggest: dict, sig: str, *, tracked: int,
             and _throttle_ok(nxt.get("refactor_ts"), now, cfg["refactor_throttle_sec"])):
         out.append(_REFACTOR_HINT)
         nxt["refactor_sig"], nxt["refactor_ts"] = sig, now
+    if (cfg.get("ship_on") and ahead >= 1 and tracked == 0 and nxt.get("ship_sig") != sig
+            and _throttle_ok(nxt.get("ship_ts"), now, cfg["ship_throttle_sec"])):
+        # tracked==0(=コミット済みでクリーン)かつ未 push コミットあり → ship を提案。
+        out.append(_SHIP_HINT)
+        nxt["ship_sig"], nxt["ship_ts"] = sig, now
     return out, nxt
+
+
+def _ahead(cwd: str) -> int:
+    """upstream より進んでいる(未 push の)コミット数。upstream 無し/エラーは 0。"""
+    cp = common.run_git(["git", "rev-list", "--count", "@{u}..HEAD"], cwd)
+    if cp and cp.returncode == 0 and cp.stdout.strip().isdigit():
+        return int(cp.stdout.strip())
+    return 0
 
 
 def _diff_size(cwd: str) -> tuple[int, int]:
@@ -433,7 +450,8 @@ def main() -> int:
                                                              wall_clock_s=wclock))
         hints, new_suggest = decide_suggestions(
             prior.get("suggest", {}), sig, tracked=tracked, files_changed=files,
-            added=added, now=time.time(), cfg=_suggest_cfg())
+            added=added, now=time.time(), cfg=_suggest_cfg(),
+            ahead=_ahead(cwd) if is_git else 0)
         state["suggest"] = new_suggest  # 注入されない state=timestamp 可(cache を冷やさない)
         _save_state(sdir, state)
         _update_progress(cwd, root, is_git)

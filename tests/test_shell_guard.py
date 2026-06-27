@@ -98,5 +98,43 @@ class TestNonBash(unittest.TestCase):
         self.assertEqual(shell_guard.process({}), (0, ""))
 
 
+class TestUncommittedPushGuard(unittest.TestCase):
+    """ultra-ai(Claude)経由の `git push` は、working-tree が未コミットなら止める。
+    手動端末 git は PreToolUse を通らないので無制約(= dirty を注入できる純関数で検証)。"""
+
+    def test_dirty_push_blocks(self):
+        code, msg = shell_guard.process(_bash("git push origin feature/x"), dirty=True)
+        self.assertEqual(code, 2)
+        self.assertIn("未コミット", msg)
+
+    def test_clean_push_passes_silently(self):
+        code, msg = shell_guard.process(_bash("git push origin feature/x"), dirty=False)
+        self.assertEqual((code, msg), (0, ""))
+
+    def test_dirty_push_override_passes(self):
+        code, msg = shell_guard.process(_bash("git push origin feature/x # ua-allow"), dirty=True)
+        self.assertEqual((code, msg), (0, ""))
+
+    def test_dirty_nonpush_passes(self):
+        # push 系でなければ dirty でも素通り(誤検知ゼロ)。
+        code, msg = shell_guard.process(_bash("npm test"), dirty=True)
+        self.assertEqual((code, msg), (0, ""))
+
+    def test_dirty_push_to_main_still_blocks(self):
+        # 未コミットは branch を問わず止める(deny-narrow の force-push-main とは別の state ガード)。
+        code, _ = shell_guard.process(_bash("git push origin main"), dirty=True)
+        self.assertEqual(code, 2)
+
+    def test_no_cwd_allows_on_uncertainty(self):
+        # cwd 不明(payload に cwd なし)→ 不確実 → 通す(既存 ALLOW の benign push と整合)。
+        code, msg = shell_guard.process(_bash("git push origin main"))
+        self.assertEqual((code, msg), (0, ""))
+
+    def test_guard_disabled_passes(self):
+        _helpers.set_env(self, UA_PUSH_GUARD="0")
+        code, msg = shell_guard.process(_bash("git push origin feature/x"), dirty=True)
+        self.assertEqual((code, msg), (0, ""))
+
+
 if __name__ == "__main__":
     unittest.main()

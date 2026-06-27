@@ -36,6 +36,11 @@ ua_banner_text() {
 # 起動バナー: 対応端末では実ロゴ画像、非対応端末はテキストにフォールバック。
 # CC のバナーは抑制/置換できない(ハードコード)ため、これはその「上」に1回出る。
 # UA_BANNER=0 で無効(停止スイッチ)。非 tty / print モードでは出さない。
+#
+# 処理の流れ(何を・なぜ):
+#   1) 早期 return: 無効/非 tty/print モード/ロゴ無し なら出さない(またはテキストへ)。
+#   2) フォーマット決定: 端末の種類($KITTY_WINDOW_ID/$TERM_PROGRAM)から出力形式(kitty/iterm/sixels/symbols)を選ぶ。
+#   3) レンダラ選定: まず移植性の高い chafa、無ければ端末ネイティブの手段、最後はテキストにフォールバック。
 ua_banner() {
   [ "${UA_BANNER:-1}" = "0" ] && return 0
   [ -t 1 ] || return 0
@@ -44,8 +49,9 @@ ua_banner() {
   done
   logo="$ULTRA_ROOT/ultra-ai.png"
   [ -f "$logo" ] || { ua_banner_text; return 0; }
-  # 端末ごとに出力フォーマットを決定(UA_BANNER_FORMAT で明示上書き可)。
+  # [2] 端末ごとに出力フォーマットを決定(UA_BANNER_FORMAT で明示上書き可)。
   # 実画像が出せる端末は kitty/iterm/sixels、それ以外は崩れないブロック文字モザイク。
+  # sixels=対応端末で画像を出すための画像形式 / symbols=画像をブロック文字で近似(全端末で崩れない)。
   fmt="${UA_BANNER_FORMAT:-}"
   if [ -z "$fmt" ]; then
     if [ -n "$KITTY_WINDOW_ID" ]; then
@@ -59,6 +65,7 @@ ua_banner() {
       esac
     fi
   fi
+  # [3] レンダラ選定。chafa(画像を文字/sixel 等に変換して端末に出すツール)。
   # chafa: 最も移植性が高いレンダラ。symbols は既定だと細い罫線で化けるため
   # ブロック文字だけに絞る(全端末・全フォントで崩れない)。実画像は端末対応時のみ。
   if command -v chafa >/dev/null 2>&1; then
@@ -71,6 +78,8 @@ ua_banner() {
     fi
   fi
   # chafa 不在時のネイティブ手段(あれば)→ 最後はテキスト。
+  # 以下はいずれも「その端末に画像を直接出す」専用ツール:
+  #   kitten icat=kitty / imgcat=iTerm / wezterm imgcat=WezTerm / img2sixel=画像を sixel に変換して出す。
   if [ -n "$KITTY_WINDOW_ID" ] && command -v kitten >/dev/null 2>&1; then
     kitten icat --align left "$logo" 2>/dev/null && return 0
   fi
@@ -89,6 +98,14 @@ ua_banner() {
 # 作る(notify.py がこのバイナリを優先して呼ぶ)。冪等(ロゴ未変更ならスキップ)・失敗は黙って
 # 素通り(起動を絶対ブロックしない)。UA_NOTIFY_APP=0 で無効=停止スイッチ。生成物は
 # claude-home/state/(gitignore・per-machine)に置き、削除で完全に元へ戻る。
+#
+# 処理の流れ(何を・なぜ):
+#   1) 前提チェック: macOS か / ロゴ有り / 必要ツール(terminal-notifier・sips・iconutil)有り。無ければ素通り。
+#   2) 冪等判定: ロゴの sha が前回と同じで .app も在るならスキップ。
+#   3) 元 .app を解決: terminal-notifier の bin から本体 .app を辿る(2行ラッパ/symlink に対応)。
+#   4) 複製→アイコン差し替え: tmp に複製し、PNG をロゴ .icns に変換して入れ替え、Info.plist を書き換える。
+#   5) 署名し直し→原子差し替え→Launch Services 登録: 改変で無効化した署名を ad-hoc で署名し直して反映。
+# 外部ツール: sips=画像を各サイズに縮小 / iconutil=PNG群→.icns に変換 / PlistBuddy=Info.plist を編集 / codesign=ad-hoc 署名 / lsregister=Launch Services にアイコンを登録。
 ua_notifier_ensure() {
   [ "${UA_NOTIFY_APP:-1}" = "0" ] && return 0
   [ "$(uname)" = "Darwin" ] || return 0

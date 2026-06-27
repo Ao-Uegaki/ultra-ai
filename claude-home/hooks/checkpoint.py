@@ -29,7 +29,46 @@ def _looks_secret(path: str) -> bool:
     return common.looks_secret_file(path)
 
 
-def main() -> int:
+# コミット末尾に焼き込む trailer(Claude による生成の明示)。oneline subject には出ない。
+COAUTHOR = "Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+
+
+def _arg_value(args: list[str], flag: str) -> str | None:
+    """`--flag value` または `--flag=value` を取り出す(無ければ None)。"""
+    for i, a in enumerate(args):
+        if a == flag and i + 1 < len(args):
+            return args[i + 1]
+        if a.startswith(flag + "="):
+            return a[len(flag) + 1:]
+    return None
+
+
+def gate_block(cwd: str, allow_fail: bool, allow_unverified: bool) -> str | None:
+    """hard PASS ゲート。コミット可なら None、止めるべきなら理由文字列を返す。**add -u 前**に
+    呼ぶ(署名は staged 前の status=gate と同じ)。`UA_CHECKPOINT_GATE=0` で無効化。"""
+    if not common.flag_enabled("CHECKPOINT_GATE"):
+        return None
+    _sig, result = common.current_verification(cwd)
+    if result == common.PASS:
+        return None
+    if result == common.FAIL:
+        if allow_fail:
+            return None
+        return ("ua-checkpoint: 拒否 — 直近の検証が FAIL です(壊れたコードはコミットしません)。"
+                "直して PASS にするか、意図的に保存するなら --allow-fail を付けてください。")
+    # None(該当記録なし)/ UNKNOWN / 署名不一致 はすべて「未検証」。
+    if allow_unverified:
+        return None
+    return ("ua-checkpoint: 拒否 — この変更は未検証(UNKNOWN)です。検証を PASS させてから、"
+            "または未検証のまま保存するなら --allow-unverified を付けてください。")
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = list(sys.argv[1:] if argv is None else argv)
+    message = _arg_value(args, "--message")
+    allow_fail = "--allow-fail" in args
+    allow_unverified = "--allow-unverified" in args
+
     cwd = os.getcwd()
     if not common.is_git_repo(cwd):
         print("ua-checkpoint: git リポジトリではありません — 何もコミットしていません。")
@@ -39,6 +78,10 @@ def main() -> int:
         print("ua-checkpoint: コミットすべき追跡済みの変更はありません"
               "(未追跡ファイルは意図的に自動追加しません)。")
         return 0
+    blocked = gate_block(cwd, allow_fail, allow_unverified)  # add -u 前=gate と同じ署名で判定
+    if blocked:
+        print(blocked)
+        return 1
     branch = common.git_branch(cwd) or "(unknown)"
     common.run_git(["git", "add", "-u"], cwd)
     diff = common.run_git(["git", "diff", "--cached", "--name-only", "-z"], cwd)
@@ -58,13 +101,18 @@ def main() -> int:
               + ", ".join(secrets)
               + "。追跡から外す(git rm --cached <f>)かリネームしてから再試行してください。")
         return 1
-    msg = commit_message(files)
-    cp = common.run_git(["git", "commit", "-q", "-m", msg], cwd)
+    msg = message.strip() if (message and message.strip()) else commit_message(files)
+    cp = common.run_git(["git", "commit", "-q", "-m", msg, "-m", COAUTHOR], cwd)
     if cp is None or cp.returncode != 0:
         print("ua-checkpoint: コミットに失敗しました(これは検証の失敗ではありません):\n"
               + ((cp.stderr or cp.stdout)[:500] if cp else "(git timed out)"))
         return 1
-    head = (common.git_head(cwd) or "")[:8]
+    head_full = common.git_head(cwd) or ""
+    # PASS 検証済みの HEAD を ship の pass_gate 用に刻む(注入しない state)。
+    if head_full:
+        common.write_json_atomic(
+            common.shared_state_dir(cwd) / common.STATE_VERIFIED_HEAD, {"head": head_full})
+    head = head_full[:8]
     print(f"ua-checkpoint: {len(files)} 件のファイルを {branch} にコミットしました ({head}): {msg}")
     if branch in ("main", "master"):
         print("  ⚠ 主要ブランチへ直接コミットしました — フィーチャーブランチの利用を検討してください。")

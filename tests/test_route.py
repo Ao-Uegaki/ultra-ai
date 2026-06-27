@@ -1,7 +1,7 @@
 """Unit tests for claude-home/hooks/route.py (run: python3 -m unittest).
 
-UserPromptSubmit のフレーミング足場: 決定論・毎回同じ文章・薄いプロンプトにだけ注入。
-分類はしない(モデルの仕事)。粗い SILENCE(trivial/会話/戦略明示)だけ決定論で判定。
+UserPromptSubmit のフレーミング足場: 機械的(乱数なし)・毎回同じ文章・薄いプロンプトにだけ注入。
+分類はしない(モデルの仕事)。粗い SILENCE(trivial/会話/戦略明示)だけ機械的に判定。
 """
 import contextlib
 import io
@@ -13,6 +13,8 @@ import route  # noqa: E402
 
 
 class TestSilence(unittest.TestCase):
+    """should_silence: trivial / 会話 / 戦略明示は無音にし、非自明は無音にしない(足場を出す)、を守る。"""
+
     def setUp(self):
         _helpers.set_env(self, UA_ROUTE=None)  # 既定 ON
 
@@ -53,6 +55,8 @@ class TestSilence(unittest.TestCase):
 
 
 class TestBuild(unittest.TestCase):
+    """route.build と scaffold の不変条件(approach 強制・毎回同じ文章・本文を漏らさない・尋問しない/effort を変えない wording)を守る。"""
+
     def setUp(self):
         _helpers.set_env(self, UA_ROUTE=None)
 
@@ -82,7 +86,7 @@ class TestBuild(unittest.TestCase):
         self.assertTrue(out)
         self.assertNotIn(uniq, out)  # 注入バイトにプロンプト本文を混ぜない
 
-    # 5. 尋問しない wording ガード(assume-and-proceed を保持)
+    # 5. 尋問しない wording ガード(仮定して進む を保持)
     def test_no_interrogation_wording(self):
         s = route.scaffold()
         for bad in ("確認してから", "ask the user", "確認を取って", "尋ねてから"):
@@ -96,17 +100,17 @@ class TestBuild(unittest.TestCase):
             self.assertNotIn(bad, s)
         self.assertIn("提案", s)
 
-    # 8. no-afterthought / fan-out-leads / ON·OFF 分岐 ガード(後回し提案の回帰防止)
+    # 8. 後回し禁止 / fan-out 先導 / ON·OFF 分岐 ガード(後回し提案の回帰防止)
     def test_no_afterthought_fanout_ordering(self):
         s = route.scaffold()
         self.assertIn("fan-out", s)
         self.assertIn("発散型", s)
         self.assertIn("最初の探索より前", s)
-        self.assertIn("「余地あり」", s)      # 後回し hedge を明示禁止
+        self.assertIn("「余地あり」", s)      # 後回しのぼかし(hedge)を明示禁止
         self.assertIn("solo", s)
         self.assertIn("既定 ON", s)           # 既定(ON)/無効化(OFF)双方の枝が存在
         self.assertIn("UA_ULTRACODE=0", s)
-        # 「fan-out が初手・solo は fallback」の指針が消えていないことを存在ガードで担保する
+        # 「fan-out が初手・solo はフォールバック」の指針が消えていないことを存在ガードで担保する
         # (脆い index 語順固定はやめる=文言の並べ替えで誤って壊さない)。
         self.assertIn("solo で始めない", s)
 
@@ -128,6 +132,8 @@ class TestBuild(unittest.TestCase):
 
 
 class TestMain(unittest.TestCase):
+    """route.main が非自明で出力し・trivial で無音・壊れた入力でも例外を出さない、を守る。"""
+
     def setUp(self):
         _helpers.set_env(self, UA_ROUTE=None)
 

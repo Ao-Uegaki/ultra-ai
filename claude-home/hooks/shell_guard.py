@@ -89,12 +89,38 @@ def check(command: str) -> str | None:
     return None
 
 
-def process(payload: dict) -> tuple[int, str]:
-    """純粋な判定(ユニットテスト可能)。Returns (exit_code, stderr_message)。"""
+_GIT_PUSH = re.compile(r"\bgit\s+push\b")
+
+
+def is_git_push(command: str) -> bool:
+    """git push 系か(override 付きは対象外)。push のときだけ working-tree を見るための前段フィルタ。"""
+    return OVERRIDE not in command and bool(_GIT_PUSH.search(command))
+
+
+def dirty_push_reason(command: str, dirty: bool) -> str | None:
+    """git push かつ未コミット(dirty)なら理由を返す純関数(dirty 注入でテスト可)。`UA_PUSH_GUARD=0` で停止。
+    強制は ultra-ai(Claude)の Bash 経由(PreToolUse)だけ — 手動端末 git は通らない=無制約。"""
+    if not common.flag_enabled("PUSH_GUARD"):
+        return None
+    if is_git_push(command) and dirty:
+        return ("未コミットの変更がある状態での git push です(コミット → push の順に)。"
+                "先に /ua-checkpoint してコミットしてから push してください")
+    return None
+
+
+def process(payload: dict, dirty: bool | None = None) -> tuple[int, str]:
+    """純粋な判定(ユニットテスト可能)。Returns (exit_code, stderr_message)。
+    `dirty` を渡すとその値を使う(テスト用)。None なら push 系のときだけ payload の cwd で遅延判定する。"""
     cmd = command_of(payload)
     if not cmd:
         return 0, ""
     reason = check(cmd)
+    if reason is None and is_git_push(cmd):
+        # push 系のときだけ working-tree を見る(非 push の silent hot-path に git status を足さない)。
+        if dirty is None:
+            cwd = payload.get("cwd")   # cwd 不明=不確実 → 通す(deny-narrow の allow-on-uncertainty)
+            dirty = bool(common.git_status_porcelain(cwd)) if cwd else False
+        reason = dirty_push_reason(cmd, dirty)
     if not reason:
         return 0, ""
     shown = cmd if len(cmd) <= 200 else cmd[:200] + "…"

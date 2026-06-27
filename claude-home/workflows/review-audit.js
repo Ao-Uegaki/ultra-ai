@@ -1,3 +1,6 @@
+// review-audit — 変更(既定は未コミット diff)を厳しい相互検証で監査する read-only ワークフロー。
+// 流れ: Review(4つの観点 DIMS を並行レビューして findings を出す)→ Verify(各 finding を3つの懐疑的 LENSES で独立検証し、3票中2票で confirmed)→ Synthesize(確定 finding をまとめ、completeness critic が見落としを追加)。
+// 3重ネスト: pipeline(段をつなぐ)→ parallel(finding ごと)→ parallel(lens ごと)。重い読み込みは全てサブエージェントへ委譲する。
 export const meta = {
   name: 'review-audit',
   description: 'Adversarial multi-agent review/audit: review across dimensions in parallel, then independently refute each finding (majority vote), then synthesize confirmed issues + a completeness critic. Read-only. Pass target paths/description as args (default: current uncommitted diff).',
@@ -59,9 +62,13 @@ const LENSES = [
   'Is the claim a misunderstanding of the language/framework semantics? If so it is NOT real.',
 ]
 
+// phase(名)=実行環境が注入する「進捗の段」の宣言(上の meta.phases と対応)。
+// 第1段 Review。pipeline(items, stage1, stage2)=各 item に stage1 を当て、その結果を stage2 へ流す段つなぎ(ここでは観点 DIMS を入力にする)。
 phase('Review')
 const results = await pipeline(
   DIMS,
+  // stage1: 観点 d ごとに agent でレビューし、各 finding に dim を付けて返す。
+  // agent(prompt, opts)=サブエージェントを起動し結果を返す。schema=返り値を FINDINGS_SCHEMA に沿わせる。agentType:'Explore'=読み取り専用の探索エージェント。
   (d) => agent(
     `Review ${TARGET} for the "${d.key}" dimension: ${d.focus}. READ-ONLY. ` +
     `Return REAL findings only (not style nits): title, file, line, severity, issue, why, concrete fix. ` +
@@ -69,7 +76,10 @@ const results = await pipeline(
     `title/issue/why/fix は日本語で書く(file/line/severity・コード・識別子・パスは原語のまま)。`,
     { label: `review:${d.key}`, phase: 'Review', schema: FINDINGS_SCHEMA, agentType: 'Explore' }
   ).then((r) => (((r && r.findings) || []).map((f) => ({ ...f, dim: d.key })))),
+  // stage2(第2段 Verify): finding ごとに parallel、その内側で LENSES ごとに parallel(=3重ネストの内2層)。
+  // parallel(fns)=複数の () => Promise を同時実行。各 lens は VERDICT_SCHEMA で真偽を返す。
   (findings) => parallel((findings || []).map((f) => () =>
+    // 各 finding を3つの lens で独立検証し、下の集計で 2票以上なら confirmed=true にする。
     parallel(LENSES.map((lens) => () =>
       agent(
         `Adversarially VERIFY this claimed issue (READ-ONLY). File: ${f.file}${f.line ? ':' + f.line : ''}. ` +
@@ -84,6 +94,7 @@ const results = await pipeline(
   ))
 )
 
+// 第3段 Synthesize: 確定した finding を集約し、completeness critic が「見落とした高リスク/観点」を追加で洗い出す。最後に severity 順へ整える。
 phase('Synthesize')
 const all = results.flat().filter(Boolean)
 const confirmed = all.filter((f) => f.confirmed)

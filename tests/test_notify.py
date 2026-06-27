@@ -8,6 +8,8 @@ import notify  # noqa: E402
 
 
 class TestOsascriptCmd(unittest.TestCase):
+    """_osascript_cmd が AppleScript 通知コマンドを正しく組み立てることを守る。"""
+
     def test_basic_shape(self):
         cmd = notify._osascript_cmd("ultra-ai", "完了", "proj")
         self.assertEqual(cmd[0], "osascript")
@@ -33,6 +35,8 @@ class TestOsascriptCmd(unittest.TestCase):
 
 
 class TestTerminalNotifierCmd(unittest.TestCase):
+    """_terminal_notifier_cmd がフラグ(subtitle/execute/icon 等)を正しく並べることを守る。"""
+
     def test_includes_subtitle(self):
         cmd = notify._terminal_notifier_cmd("t", "m", "s")
         self.assertEqual(cmd[0], "terminal-notifier")
@@ -77,6 +81,8 @@ class TestTerminalNotifierCmd(unittest.TestCase):
 
 
 class TestSelectCmd(unittest.TestCase):
+    """select_cmd が利用可能な通知手段を選び、非対応フラグを落とすことを守る。"""
+
     def test_prefers_terminal_notifier(self):
         cmd = notify.select_cmd("t", "m", None, has_tn=True, has_osa=True)
         self.assertEqual(cmd[0], "terminal-notifier")
@@ -105,7 +111,7 @@ class TestSelectCmd(unittest.TestCase):
 
 
 class TestNotifierBin(unittest.TestCase):
-    """自前バンドル(左アイコン=ロゴ)の解決と縮退。"""
+    """自前バンドル(左アイコン=ロゴ)の解決とフォールバック。"""
 
     def _patch_config_dir(self, root):
         import pathlib
@@ -140,6 +146,8 @@ class TestNotifierBin(unittest.TestCase):
 
 
 class TestTerminalTarget(unittest.TestCase):
+    """_terminal_target が端末ごとのクリック先と右アイコンを返すことを守る。"""
+
     def test_vscode_opens_project(self):
         execute, content_image = notify._terminal_target("vscode", "/a/b/proj")
         self.assertEqual(execute, 'open -a "Visual Studio Code" "/a/b/proj"')
@@ -171,6 +179,8 @@ class TestTerminalTarget(unittest.TestCase):
 
 
 class TestNotificationArgs(unittest.TestCase):
+    """notification_args が payload から種別・ラベル・cwd を取り出すことを守る。"""
+
     def test_permission_prompt_default(self):
         kind, label, cwd = notify.notification_args({"notification_type": "permission_prompt"})
         self.assertEqual(kind, "approval")
@@ -199,15 +209,19 @@ class TestNotificationArgs(unittest.TestCase):
 
 
 class TestProjectLabel(unittest.TestCase):
+    """_project_label がパスからプロジェクト名を取り出すことを守る。"""
+
     def test_basename(self):
         self.assertEqual(notify._project_label("/x/y/proj"), "proj")
 
     def test_root_has_no_name_falls_back_to_uai(self):
-        # Path("/").name == "" なので "uai" に縮退する
+        # Path("/").name == "" なので "uai" にフォールバックする
         self.assertEqual(notify._project_label("/"), "uai")
 
 
 class TestSubtitle(unittest.TestCase):
+    """_subtitle がプロジェクト名とブランチから副題を組むことを守る。"""
+
     def test_project_and_branch(self):
         self.assertEqual(notify._subtitle("/a/b/proj", "main"), "proj · main")
 
@@ -216,6 +230,8 @@ class TestSubtitle(unittest.TestCase):
 
 
 class TestSendEvent(unittest.TestCase):
+    """send_event が種別ごとのタイトル・本文・副題を正しく作ることを守る。"""
+
     def _capture(self):
         # 抑制ゲートを無効化(UA_NOTIFY_SMART=0)=常に _send まで届く・ioreg も呼ばない
         _helpers.set_env(self, UA_NOTIFY_SMART="0")
@@ -254,10 +270,10 @@ class TestSendEvent(unittest.TestCase):
 
     def test_stuck_uses_warning_emoji(self):
         seen = self._capture()
-        notify.send_event("stuck", label="検証が詰まった(要確認)", cwd="/p",
+        notify.send_event("stuck", label="検証が進まない(要確認)", cwd="/p",
                           detail="✗ test が失敗:", term_program="vscode")
         self.assertEqual(seen["title"], f"{notify.APP_TITLE} {notify._KIND_EMOJI['stuck']}")
-        self.assertEqual(seen["message"], "検証が詰まった(要確認) · ✗ test が失敗:")
+        self.assertEqual(seen["message"], "検証が進まない(要確認) · ✗ test が失敗:")
 
     def test_turn_complete_is_done_event(self):
         seen = self._capture()
@@ -268,6 +284,8 @@ class TestSendEvent(unittest.TestCase):
 
 
 class TestShouldEmit(unittest.TestCase):
+    """should_emit の抑制ゲート(在席・短時間は抑制、要対応は常に通知)を守る。"""
+
     CFG = {"smart": True, "idle": 120, "mindur": 10}
 
     def test_human_needed_kinds_always_emit(self):
@@ -299,6 +317,8 @@ class TestShouldEmit(unittest.TestCase):
 
 
 class TestKillSwitch(unittest.TestCase):
+    """UA_NOTIFY=0 で通知を一切送らない停止スイッチを守る。"""
+
     def test_ua_notify_off_sends_nothing(self):
         # UA_NOTIFY=0 なら subprocess を一切呼ばない(プラットフォーム非依存で確認)。
         _helpers.set_env(self, UA_NOTIFY="0")

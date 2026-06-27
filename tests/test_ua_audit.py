@@ -1,6 +1,6 @@
 """Unit tests for claude-home/hooks/ua_audit.py (run: python3 -m unittest).
 
-合成 config dir に問題を仕込み、tri-state(planted→FAIL / clean→PASS / 壊れ→UNKNOWN)を検証する。
+合成 config dir に問題を仕込み、3状態(問題あり→FAIL / 健全→PASS / 壊れ→UNKNOWN)を検証する。
 """
 import json
 import tempfile
@@ -30,6 +30,8 @@ def _clean_base(root: Path) -> None:
 
 
 class TestClean(unittest.TestCase):
+    """健全な設定面は overall=PASS かつ findings が空、を守る。"""
+
     def test_clean_surface_passes(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
@@ -40,6 +42,8 @@ class TestClean(unittest.TestCase):
 
 
 class TestFails(unittest.TestCase):
+    """危険な設定面(過剰権限・ハードコード機密・注入ベクトル・隠し unicode 等)は overall=FAIL になる、を守る。"""
+
     def _audit_with(self, mutate) -> dict:
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
@@ -105,6 +109,8 @@ class TestFails(unittest.TestCase):
 
 
 class TestUnknown(unittest.TestCase):
+    """解析できない settings は PASS でなく UNKNOWN にする(未検証を緑にしない)、を守る。"""
+
     def test_unparseable_settings_is_unknown_not_pass(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
@@ -116,7 +122,7 @@ class TestUnknown(unittest.TestCase):
 
 
 class TestAgentBaseline(unittest.TestCase):
-    """全 subagent 定義に防御 baseline が焼き込まれているかの drift 検出。"""
+    """全 subagent 定義に防御 baseline が組み込まれているかの drift(ずれ)検出。"""
 
     def test_agent_without_baseline_fails(self):
         with tempfile.TemporaryDirectory() as d:

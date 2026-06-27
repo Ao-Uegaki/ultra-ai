@@ -1,6 +1,6 @@
 """Unit tests for claude-home/hooks/learn.py (run: python3 -m unittest).
 
-賢く半自動の振り分け(correction→active / fail-pass→staging)、重複排除・上限・冪等。
+半自動の学習レイヤの振り分け(correction→active / fail-pass→staging)、重複排除・上限・冪等(何度実行しても同じ結果)。
 """
 import tempfile
 import unittest
@@ -20,6 +20,8 @@ def _draft(cwd):
 
 
 class TestMigrate(_helpers.ConfigDirTestCase):
+    """旧名の state ファイルを新名へ移行(2回目は何もしない=冪等)することを守る。"""
+
     def test_renames_legacy_files_idempotent(self):
         with tempfile.TemporaryDirectory() as cwd:
             shared = common.shared_state_dir(cwd)
@@ -37,14 +39,18 @@ class TestMigrate(_helpers.ConfigDirTestCase):
 
 
 class TestRouting(unittest.TestCase):
+    """route_for が source ごとに既定の振り分け先(active/draft)を返すことを守る。"""
+
     def test_route_for(self):
-        # route_for は LLM/人手で般化済みの apply 入力の既定(決定論の自動経路は使わない)。
+        # route_for は LLM/人手で一般ルール化済みの apply 入力の既定(機械的な自動経路は使わない)。
         self.assertEqual(learn.route_for("correction"), learn.ROUTE_ACTIVE)
         self.assertEqual(learn.route_for("fail-pass"), learn.ROUTE_DRAFT)
         self.assertEqual(learn.route_for("whatever"), learn.ROUTE_DRAFT)
 
 
 class TestApply(_helpers.ConfigDirTestCase):
+    """apply が候補を active/draft へ振り分け、重複排除・上限・ノイズ除去を守る。"""
+
     def test_routes_and_persists(self):
         with tempfile.TemporaryDirectory() as cwd:
             res = learn.apply(cwd, [
@@ -78,7 +84,7 @@ class TestApply(_helpers.ConfigDirTestCase):
             self.assertEqual(_active(cwd), [])
 
     def test_noise_route_active_downgraded_to_draft(self):
-        # 防御: active 行きでも再利用不能(ノイズ)なら active に書かない
+        # ガード: active 行きでも再利用不能(ノイズ)なら active に書かない
         with tempfile.TemporaryDirectory() as cwd:
             learn.apply(cwd, [{"text": "<task-notification> garbage text here",
                                  "source": "correction", "route": "active"}])
@@ -94,6 +100,8 @@ class TestApply(_helpers.ConfigDirTestCase):
 
 
 class TestCandidates(_helpers.ConfigDirTestCase):
+    """候補ファイルの読み込みとクリアが正しく動くことを守る。"""
+
     def test_load_and_clear(self):
         with tempfile.TemporaryDirectory() as cwd:
             f = common.shared_state_dir(cwd) / common.STATE_LEARN_CANDIDATES
@@ -105,7 +113,7 @@ class TestCandidates(_helpers.ConfigDirTestCase):
 
 
 class TestAutoInstincts(_helpers.ConfigDirTestCase):
-    """b+ 決定論経路: 全件 staging 既定・反復(確かめた事実)でのみ active 昇格。"""
+    """b+ の機械的な経路: 全件 staging 既定・反復(確かめた事実)でのみ active 昇格。"""
 
     def test_single_correction_goes_to_draft(self):
         with tempfile.TemporaryDirectory() as cwd:

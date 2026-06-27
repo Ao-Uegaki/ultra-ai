@@ -9,7 +9,7 @@
 アームは control(素) / control-xhigh(素+effortLevel:xhigh) / treatment(ultra-ai)。
 比較列は **vs control=総合効果(仕組み+effort)** と **vs control-xhigh=仕組みのみ(effort を揃えた差)**。
 
-決定論・API を呼ばない(transcript を読むだけ)。**計測はゲートにしない**(監視・洞察用)。
+機械的(乱数を使わず)・API を呼ばない(transcript を読むだけ)。**計測はゲートにしない**(監視・洞察用)。
 使い方: `python3 bench/ab_report.py <results.jsonl>`
 """
 from __future__ import annotations
@@ -36,7 +36,7 @@ _CHURN_METRICS = transcript_metrics.CHURN_METRICS
 
 
 def pass_at_k(successes: list[bool]) -> bool:
-    """k 回中に少なくとも1回成功したか(ECC eval-harness の pass@k)。"""
+    """k 回中に少なくとも1回成功したか(評価指標 pass@k)。"""
     return any(successes)
 
 

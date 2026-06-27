@@ -8,6 +8,7 @@ from pathlib import Path
 
 import _helpers  # noqa: F401  (puts claude-home/hooks on sys.path)
 import checkpoint  # noqa: E402
+import common  # noqa: E402
 
 
 class TestCommitMessage(unittest.TestCase):
@@ -43,6 +44,7 @@ class TestMainIntegration(unittest.TestCase):
     def setUp(self):
         self.repo = _helpers.make_git_repo(self)
         self.addCleanup(os.chdir, os.getcwd())  # restore cwd before the repo is removed
+        _helpers.set_env(self, UA_CHECKPOINT_GATE="0")  # commit 機構のみ検証(PASS ゲートは別クラス)
 
     def _add_commit(self, name, content):
         r = self.repo.name
@@ -83,6 +85,87 @@ class TestMainIntegration(unittest.TestCase):
         log = self._log()
         self.assertIn("checkpoint", log)
         self.assertIn("my file.txt", log)  # 1件として扱われ basename が壊れない
+
+
+class TestPassGate(_helpers.ConfigDirTestCase):
+    """hard PASS ゲート(UA_CHECKPOINT_GATE 既定 ON): FAIL は拒否・未検証は拒否・PASS で commit。"""
+
+    def setUp(self):
+        super().setUp()  # isolated CLAUDE_CONFIG_DIR
+        self.repo = _helpers.make_git_repo(self)
+        self.addCleanup(os.chdir, os.getcwd())
+        r = self.repo.name
+        (Path(r) / "a.txt").write_text("v1")
+        subprocess.run(["git", "add", "-f", "a.txt"], cwd=r)
+        subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=r)
+        (Path(r) / "a.txt").write_text("v2")  # 追跡済みの変更
+        os.chdir(r)
+
+    def _seed(self, result):
+        # 現在の working-tree(add -u 前)の署名で verification を仕込む(gate と同じ鍵)。
+        cwd = os.getcwd()
+        sig = common.verification_sig(common.git_head(cwd) or "",
+                                      common.git_status_porcelain(cwd))
+        sdir = common.session_state_dir(cwd, "s1")
+        common.write_json_atomic(sdir / common.STATE_VERIFICATION,
+                                 {"signature": sig, "result": result})
+
+    def _main(self, *args):
+        with contextlib.redirect_stdout(io.StringIO()):
+            return checkpoint.main(list(args))
+
+    def _log(self):
+        return subprocess.run(["git", "log", "--oneline"], cwd=os.getcwd(),
+                              capture_output=True, text=True).stdout
+
+    def test_pass_commits(self):
+        self._seed(common.PASS)
+        self.assertEqual(self._main(), 0)
+        self.assertIn("checkpoint", self._log())
+
+    def test_pass_records_verified_head(self):
+        self._seed(common.PASS)
+        self._main()
+        vh = common.read_json(common.shared_state_dir(os.getcwd()) / common.STATE_VERIFIED_HEAD)
+        self.assertEqual(vh.get("head"), common.git_head(os.getcwd()))
+
+    def test_fail_refused(self):
+        self._seed(common.FAIL)
+        self.assertEqual(self._main(), 1)
+        self.assertNotIn("checkpoint", self._log())
+
+    def test_fail_allow_override(self):
+        self._seed(common.FAIL)
+        self.assertEqual(self._main("--allow-fail"), 0)
+        self.assertIn("checkpoint", self._log())
+
+    def test_unverified_refused(self):
+        # seed しない=この状態の記録なし=未検証。
+        self.assertEqual(self._main(), 1)
+        self.assertNotIn("checkpoint", self._log())
+
+    def test_unverified_allow_override(self):
+        self.assertEqual(self._main("--allow-unverified"), 0)
+        self.assertIn("checkpoint", self._log())
+
+    def test_gate_disabled_commits_unverified(self):
+        _helpers.set_env(self, UA_CHECKPOINT_GATE="0")
+        self.assertEqual(self._main(), 0)
+        self.assertIn("checkpoint", self._log())
+
+    def test_message_override_sets_subject(self):
+        self._seed(common.PASS)
+        self._main("--message", "feat: add a")
+        subj = subprocess.run(["git", "log", "-1", "--format=%s"], cwd=os.getcwd(),
+                              capture_output=True, text=True).stdout.strip()
+        self.assertEqual(subj, "feat: add a")
+
+    def test_coauthor_trailer_in_body(self):
+        self._seed(common.PASS)
+        self._main()
+        body = subprocess.run(["git", "log", "-1", "--format=%b"], cwd=os.getcwd(),
+                              capture_output=True, text=True).stdout
+        self.assertIn("Co-Authored-By: Claude", body)
 
 
 if __name__ == "__main__":

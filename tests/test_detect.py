@@ -10,6 +10,8 @@ import detect  # noqa: E402
 
 
 class TestDetect(unittest.TestCase):
+    """detect_stack の基本検出(node / python / unknown と、設定ゼロの unittest 配置)を守る。"""
+
     def test_node(self):
         with tempfile.TemporaryDirectory() as d:
             (Path(d) / "package.json").write_text(
@@ -63,13 +65,13 @@ class TestDetect(unittest.TestCase):
 
 
 class TestDetectStackDegradation(unittest.TestCase):
-    """検出の縮退を固定する characterization test(バグ修正でなく現挙動のスナップショット)。
+    """検出の既知の制限をそのまま固定する characterization test(現挙動をそのまま固定する回帰テスト)。
     どちらも gate 側の『型チェック不在のまま test PASS だけで緑』『monorepo の片側を取りこぼす』
-    という縮退を、回帰として落とせるようにするのが目的。"""
+    という既知の制限を、回帰として落とせるようにするのが目的。"""
 
     def test_typecheck_absent_when_only_pytest_on_path(self):
         # pyright/mypy が PATH に無い環境では typecheck=None になり、gate は test PASS だけで
-        # 緑にできる(=型チェック不在経路)。detect._which を単一 seam として patch する。
+        # 緑にできる(=型チェック不在経路)。detect._which を唯一の差し替え点(patch する境界)として差し替える。
         orig = detect._which
         detect._which = lambda name: name == "pytest"  # pytest だけ在る
         try:
@@ -84,7 +86,7 @@ class TestDetectStackDegradation(unittest.TestCase):
             detect._which = orig
 
     def test_monorepo_packagejson_shadows_pyproject(self):
-        # 既知の(意図された)単一ルート縮退: package.json があれば node 検出が優先され、
+        # 既知の(意図された)単一ルートの制限: package.json があれば node 検出が優先され、
         # 同居する pyproject.toml(Python)は取りこぼす。将来 monorepo 対応するなら別 issue。
         # ここはその現挙動を固定し、黙って変わらないようにするだけ(取りこぼし自体は直さない)。
         import json
@@ -95,6 +97,8 @@ class TestDetectStackDegradation(unittest.TestCase):
 
 
 class TestDetectDomains(unittest.TestCase):
+    """detect_domains のドメイン検出(保守的な信号だけ拾い、汎用依存での誤検出を避ける)を守る。"""
+
     def _repo(self, **files):
         d = tempfile.TemporaryDirectory()
         self.addCleanup(d.cleanup)
@@ -166,7 +170,7 @@ class TestDetectDomains(unittest.TestCase):
     def test_broken_manifests_never_raise(self):
         d = self._repo(**{"package.json": "{not json",
                           "pyproject.toml": "[broken"})
-        self.assertEqual(detect.detect_domains(d), set())  # 例外でなく空集合へ縮退
+        self.assertEqual(detect.detect_domains(d), set())  # 例外でなく空集合へフォールバック
 
     def test_multiple_domains_union(self):
         d = self._repo(**{"package.json": json.dumps({"dependencies": {"react": "1", "express": "1"}}),
@@ -175,6 +179,8 @@ class TestDetectDomains(unittest.TestCase):
 
 
 class TestProjectConfig(unittest.TestCase):
+    """load_project_config が .ultra-ai.toml を読み、無ければ空 dict を返す、を守る。"""
+
     def test_reads_toml(self):
         with tempfile.TemporaryDirectory() as d:
             (Path(d) / ".ultra-ai.toml").write_text('[verify]\ntest = "pytest"\n')
@@ -187,6 +193,8 @@ class TestProjectConfig(unittest.TestCase):
 
 
 class TestImpactedTestCmd(unittest.TestCase):
+    """impacted_test_cmd が変更ファイルからテストを絞り込み、ソース変更や曖昧なときは full に下がる、を守る。"""
+
     PY = detect.Stack(kind="python", test="pytest -q")
 
     def test_test_only_change_narrows(self):
@@ -255,6 +263,8 @@ class TestImpactedTestCmd(unittest.TestCase):
 
 
 class TestVerifyConfig(unittest.TestCase):
+    """verify_config が [verify] セクションを読み、無ければ空 dict を返す、を守る。"""
+
     def test_present(self):
         with tempfile.TemporaryDirectory() as d:
             (Path(d) / common.CONFIG_FILE).write_text(

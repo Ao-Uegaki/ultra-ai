@@ -11,6 +11,8 @@ import resume_context as rc  # noqa: E402
 
 
 class TestProgressBranch(unittest.TestCase):
+    """progress_branch が progress テキストから branch 名を取り出し、無ければ None を返す、を守る。"""
+
     def test_parse(self):
         self.assertEqual(rc.progress_branch("- branch: main   HEAD: abc123"), "main")
 
@@ -19,9 +21,11 @@ class TestProgressBranch(unittest.TestCase):
 
 
 class TestBuild(_helpers.ConfigDirTestCase):
+    """rc.build の SessionStart 注入(startup / clear では出す・resume では出さない・branch 不一致なら出さない)を守る。"""
+
     def setUp(self):
         super().setUp()
-        _helpers.stub_git_none(self)  # 非 git tempdir では挙動不変・git spawn を消す
+        _helpers.stub_git_none(self)  # 非 git tempdir では挙動不変・git の呼び出しを消す
 
     def _write(self, cwd, text):
         (common.shared_state_dir(cwd) / common.STATE_PROGRESS).write_text(text)
@@ -271,7 +275,7 @@ class TestDistillSuggestion(_helpers.ConfigDirTestCase):
             first = rc.build({"source": "startup", "cwd": cwd})
             second = rc.build({"source": "startup", "cwd": cwd})
             self.assertIn("/ua-learn", first)
-            self.assertNotIn("/ua-learn", second)  # 同じ帯では再提案しない(nag 回避)
+            self.assertNotIn("/ua-learn", second)  # 同じ帯では再提案しない(しつこさ回避)
 
     def test_kill_switch(self):
         _helpers.set_env(self, UA_SUGGEST_LEARN="0")
@@ -287,7 +291,7 @@ class TestDistillSuggestion(_helpers.ConfigDirTestCase):
 
 
 class TestBenchSuggestion(_helpers.ConfigDirTestCase):
-    """有効な学習した約束ごと がマイルストン帯に達したら一度だけ /ua-compare を提案(dedup=毎回出さない)。"""
+    """有効な学習した約束ごと が節目の帯に達したら一度だけ /ua-compare を提案(dedup=毎回出さない)。"""
 
     def setUp(self):
         super().setUp()
@@ -363,7 +367,7 @@ class TestGlobalInstinctInjection(_helpers.ConfigDirTestCase):
 
 
 class TestCompactReinject(_helpers.ConfigDirTestCase):
-    """source=compact: 飲まれた byte-stable 層を再注入 + 継続アンカー(transient)。"""
+    """source=compact: 飲まれた byte-stable 層を再注入 + 継続アンカー(transient=その場限り)。"""
 
     def setUp(self):
         super().setUp()

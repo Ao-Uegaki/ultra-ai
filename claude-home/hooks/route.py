@@ -30,7 +30,7 @@ import learning  # noqa: E402
 _SCAFFOLD = """ultra-ai — approach: 着手前に、まず次の1行だけ出力してから進め(言い回しに依存せず意図を分類):
   approach: <設計|実装|デバッグ|レビュー|把握|横断|軽微> → <とる戦略(発散型は fan-out 法を明記)> / 仮定: <あれば>
 発散型(設計/全体把握/広域バグ狩り/横断・移行)は fan-out 法を最初の探索より前に決め approach 行に明記する。
-「余地あり」等で後回しにしたり solo 探索に流れたりしない=fan-out が初手の地図化そのもの。
+「余地あり」等で後回しにしたり solo 探索に流れたりしない=fan-out が初手の把握そのもの。
   ・ultracode は既定 ON → 発散型は初手の探索を Workflow/understand の fan-out として実行する(solo で始めない)。
   ・UA_ULTRACODE=0 で無効化したときのみ → solo 探索に入る前に有効化を促す。
 型ごとの既定戦略(design-panel/understand/deep-solver/review-audit/spec 等)は常駐 CLAUDE.md §approach を参照(ここでは再掲しない)。

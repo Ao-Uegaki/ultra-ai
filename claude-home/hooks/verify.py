@@ -76,7 +76,7 @@ def _scan_hidden_unicode(file: str) -> tuple[int, str]:
         return 0, ""
     detail = ", ".join(f"L{ln}:U+{cp:04X}" for ln, cp in hits)
     return 2, (f"⚠ 不可視/双方向の制御文字を検出: {os.path.basename(file)} — {detail}\n"
-               "隠し指示の注入面の可能性。意図的でなければ除去を(誤検知なら UA_UNICODE_GUARD=0)。")
+               "隠し指示が混入している可能性。意図的でなければ除去を(誤検知なら UA_UNICODE_GUARD=0)。")
 
 
 # ----------------------------------------------- ua-audit auto-fire ------------

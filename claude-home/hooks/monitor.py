@@ -10,7 +10,7 @@ session-scoped な bridge(直近ツールのリング + 編集ファイル集合
   - **内容ハッシュで dedup**(call counter でなく)。同じ警告は再注入しない・深刻度が上がった時だけ再掲。
   - 検知: ① tool ループ(同一 (tool,input) が直近 RING 回で LOOP 回以上=詰まり)
           ② scope creep(編集ファイル数 超過)③ compact 提案(tool 数の節目)
-          ④ context 逼迫(直近 Stop の metrics.json の peak context vs window)。
+          ④ context 圧迫(直近 Stop の metrics.json の peak context vs window)。
   - 重い transcript 再パースはしない(ループ/スコープ/数は payload から増分・context は metrics.json 参照)。
   - 通過時は無出力・exit 0。例外は握りつぶす(hook を止めない)。
   - kill switch: UA_MONITOR=0 / ultra-ai-safe(disableAllHooks)。
@@ -65,7 +65,7 @@ def content_hash(tool_input: dict) -> str:
 def _loop_msg(tool: str) -> str:
     # カウントは入れない(毎回同じ文字列 → dedup が効く=詰まりを一度だけ警告)。
     return (f"⟳ ループ警告: {tool} を同じ入力で繰り返し実行しています。"
-            "詰まっている可能性。別アプローチか前提の再確認を。")
+            "進まなくなっている可能性。別アプローチか前提の再確認を。")
 
 
 def _scope_msg(n: int) -> str:
@@ -77,7 +77,7 @@ def _compact_msg(n: int) -> str:
 
 
 def _context_msg(pct: int, tok: int, win: int, crit: bool) -> str:
-    head = "context 逼迫(critical)" if crit else "context 警告"
+    head = "context 圧迫(critical)" if crit else "context 警告"
     return (f"◴ {head}: ~{pct}% ({tok // 1000}k/{win // 1000}k)。"
             "区切りで /compact か /ua-checkpoint を検討。")
 

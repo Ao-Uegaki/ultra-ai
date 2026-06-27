@@ -26,7 +26,7 @@ tools: Read, Grep, Glob, Bash
 - **mutable default 引数**: `def f(x=[])` / `={}` は呼び出し間で共有され蓄積バグ。`=None` + 関数内で初期化。
 - **late binding closure**: ループ内で作る lambda/関数が末尾値を捕捉(`for i ... lambda: i`)。`default arg` で束縛。
 - **可変なクラス/dataclass 属性**: `field(default=[])` 等は全 instance で共有。`default_factory=list`。
-- **例外設計**: bare/broad `except` と silent fail。捕まえるなら具体型。境界(hook/IO)のみ広く捕まえ安全側へ縮退し、握る場合も log + 文脈付与。`raise ... from e` で連鎖を保つ。
+- **例外設計**: bare/broad `except` と silent fail。捕まえるなら具体型。境界(hook/IO)のみ広く捕まえ安全側へフォールバックし、握る場合も log + 文脈付与。`raise ... from e` で連鎖を保つ。
 - **リソース**: file/socket/lock/session は `with`。手動 open/close は例外時にリーク。
 - **真偽・同一性**: `is None`/`is not None`。`if not x:` は `0`/`""`/空 list も拾う意図か確認。`isinstance()` を使い `type(x) ==` を避ける。
 - **インジェクション**: SQL/シェルを f-string・`%`・`+` で組み立てない。SQL はパラメータ化、コマンドは `subprocess.run([...])`(`shell=True` は信頼境界のみ)。`eval`/`exec`/`pickle.loads`/`yaml.load`(`safe_load` を使う)を未検証入力に当てない。

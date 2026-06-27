@@ -2,8 +2,8 @@
 """bench/ab_run.py — 対・素 Claude の 2アーム A/B を headless で回す runner(PoC)。
 
 各 (task × arm × run) で: 使い捨て sandbox に task の repo をコピー → `claude -p` を起動
-→ 結果 JSON から session_id を得て transcript を特定 → **held-out oracle** を sandbox に入れて
-実行し pass/fail → 1行を results jsonl に追記。採点・集計は `ab_report.py`。
+→ 結果 JSON から session_id を得て transcript を特定 → **held-out oracle**(採点用に隠しておくテスト)を
+sandbox に入れて実行し pass/fail → 1行を results jsonl に追記。採点・集計は `ab_report.py`。
 
 - arm: control=素 claude(`bench/arm-control-config` + UA_* 全 OFF)/ treatment=ultra-ai(`claude-home`)。
 - headless で Stop hook 発火は未保証だが transcript は必ず書かれる → hook 非依存で事後採点。
@@ -33,7 +33,7 @@ SANDBOX_ROOT = ROOT / "bench" / ".sandboxes"
 
 ARMS = {
     # control=素の Claude: 専用の空 config dir + 学習/approach/rules を念のため全 OFF。
-    # model は両アームとも opus に揃える(公平性=「同じモデルで harness on/off」)。
+    # model は両アームとも opus に揃える(公平性=「同じモデルで ultra-ai の仕組み on/off」)。
     "control": {"config_dir": str(ROOT / "bench" / "arm-control-config"),
                 "env": {"UA_AUTOAPPLY": "0", "UA_ROUTE": "0", "UA_RULES": "0"},
                 "model": "opus"},
@@ -123,7 +123,7 @@ def invoke_claude(prompt: str, sandbox: str, config_dir: str,
         cp = subprocess.run(cmd, cwd=sandbox, env=env, capture_output=True,
                             text=True, timeout=timeout)
         return json.loads(cp.stdout)
-    except Exception as e:  # 失敗は run 結果として記録(harness を止めない)
+    except Exception as e:  # 失敗は run 結果として記録(1 件の失敗で実行全体を止めない)
         return {"_error": repr(e)}
 
 

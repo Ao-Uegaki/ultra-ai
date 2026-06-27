@@ -12,41 +12,52 @@ from _helpers import stdin_payload  # noqa: E402
 import common  # noqa: E402
 import gate  # noqa: E402
 
-P = lambda n: (n, common.PASS, "")            # noqa: E731
-F = lambda n, o="boom": (n, common.FAIL, o)   # noqa: E731
-U = lambda n: (n, common.UNKNOWN, "")         # noqa: E731
+# 1つのチェック結果タプル (チェック名, 状態, 出力) を作る小さなヘルパー。
+# gate.aggregate / evaluate などに渡す入力を、読みやすく組み立てるためのもの。
+def pass_result(name):
+    return (name, common.PASS, "")
+
+def fail_result(name, output="boom"):  # output 既定の "boom" は中身を問わないダミーの失敗出力
+    return (name, common.FAIL, output)
+
+def unknown_result(name):
+    return (name, common.UNKNOWN, "")
 
 
 class TestAggregate(unittest.TestCase):
+    """複数チェックの状態を1つに畳む規則: 1つでも FAIL なら FAIL、UNKNOWN 混在は UNKNOWN。"""
+
     def test_empty_is_unknown(self):
         self.assertEqual(gate.aggregate([]), common.UNKNOWN)
 
     def test_all_pass(self):
-        self.assertEqual(gate.aggregate([P("typecheck"), P("test")]), common.PASS)
+        self.assertEqual(gate.aggregate([pass_result("typecheck"), pass_result("test")]), common.PASS)
 
     def test_any_fail_is_fail(self):
-        self.assertEqual(gate.aggregate([P("typecheck"), F("test")]), common.FAIL)
+        self.assertEqual(gate.aggregate([pass_result("typecheck"), fail_result("test")]), common.FAIL)
 
     def test_pass_plus_unknown_is_unknown(self):
         # couldn't fully verify -> must NOT claim PASS
-        self.assertEqual(gate.aggregate([P("typecheck"), U("test")]), common.UNKNOWN)
+        self.assertEqual(gate.aggregate([pass_result("typecheck"), unknown_result("test")]), common.UNKNOWN)
 
 
 class TestEvaluate(unittest.TestCase):
+    """1回の検証結果から exit コード・状態・連続失敗回数・通知要否を決める純ロジック。"""
+
     def test_pass(self):
-        d = gate.evaluate({}, "sig1", [P("test")])
+        d = gate.evaluate({}, "sig1", [pass_result("test")])
         self.assertEqual(d["exit"], 0)
         self.assertEqual(d["state"]["result"], common.PASS)
         self.assertEqual(d["state"]["fail_streak"], 0)
 
     def test_fail_first_time(self):
-        d = gate.evaluate({}, "sig1", [F("test")])
+        d = gate.evaluate({}, "sig1", [fail_result("test")])
         self.assertEqual(d["exit"], 2)
         self.assertEqual(d["state"]["fail_streak"], 1)
         self.assertFalse(d["escalate"])
 
     def test_fail_repeated_escalates(self):
-        d = gate.evaluate({"fail_streak": 1}, "sig1", [F("test")])
+        d = gate.evaluate({"fail_streak": 1}, "sig1", [fail_result("test")])
         self.assertEqual(d["state"]["fail_streak"], 2)
         self.assertTrue(d["escalate"])
 
@@ -60,7 +71,7 @@ class TestEvaluate(unittest.TestCase):
     def test_suggest_state_carried_forward(self):
         # 提案 dedup state は PASS/FAIL/UNKNOWN いずれでも引き継ぐ(FAIL→PASS で nag させない)
         prior = {"suggest": {"ckpt_sig": "x", "ckpt_ts": 1.0}}
-        for results in ([P("test")], [F("test")], []):
+        for results in ([pass_result("test")], [fail_result("test")], []):
             self.assertEqual(
                 gate.evaluate(prior, "sig", results)["state"]["suggest"],
                 {"ckpt_sig": "x", "ckpt_ts": 1.0})
@@ -113,8 +124,29 @@ class TestDecideSuggestions(unittest.TestCase):
                                            added=999, now=1.0, cfg=cfg)
         self.assertEqual(hints, [])
 
+    def test_ship_fires_when_ahead_and_clean(self):
+        cfg = {**self.CFG, "ship_on": True, "ship_throttle_sec": 1800}
+        hints, st = gate.decide_suggestions({}, "sZ", tracked=0, files_changed=0,
+                                            added=0, now=1.0, cfg=cfg, ahead=2)
+        self.assertTrue(any("/ua-ship" in h for h in hints))
+        self.assertEqual(st["ship_sig"], "sZ")
+
+    def test_ship_not_when_dirty(self):
+        cfg = {**self.CFG, "ship_on": True, "ship_throttle_sec": 1800}
+        hints, _ = gate.decide_suggestions({}, "sZ", tracked=3, files_changed=0,
+                                           added=0, now=1.0, cfg=cfg, ahead=2)
+        self.assertFalse(any("/ua-ship" in h for h in hints))  # 未コミットは先に checkpoint
+
+    def test_ship_not_when_not_ahead(self):
+        cfg = {**self.CFG, "ship_on": True, "ship_throttle_sec": 1800}
+        hints, _ = gate.decide_suggestions({}, "sZ", tracked=0, files_changed=0,
+                                           added=0, now=1.0, cfg=cfg, ahead=0)
+        self.assertFalse(any("/ua-ship" in h for h in hints))
+
 
 class TestResolveCommands(unittest.TestCase):
+    """検証コマンドの解決: プロジェクト設定(.ultra-ai.toml)が自動検出より優先される。"""
+
     def test_project_config_overrides_detect(self):
         with tempfile.TemporaryDirectory() as d:
             _helpers.write_config_toml(
@@ -128,6 +160,8 @@ class TestResolveCommands(unittest.TestCase):
 
 
 class TestSignature(unittest.TestCase):
+    """working-tree 署名: 同じ状態は同じ値、変化(HEAD/変更ファイル)で必ず変わる(dedup の土台)。"""
+
     def test_deterministic(self):
         self.assertEqual(gate.sig_of("head", ["M a.py"]), gate.sig_of("head", ["M a.py"]))
 
@@ -137,41 +171,47 @@ class TestSignature(unittest.TestCase):
 
 
 class TestFailSummary(unittest.TestCase):
+    """失敗要約は行数を上限内に抑え、完全ログへの参照を必ず付ける(context を溢れさせない)。"""
+
     def test_bounded_lines(self):
         big = "\n".join(f"error {i}" for i in range(200))
-        msg = gate.build_fail_summary([F("typecheck", big), F("test", big)], "/tmp/x.log")
+        msg = gate.build_fail_summary([fail_result("typecheck", big), fail_result("test", big)], "/tmp/x.log")
         self.assertLessEqual(len(msg.splitlines()), 22)  # 2 headers + ~16 + log line
         self.assertIn("完全ログ:", msg)
 
 
 class TestPassDetail(unittest.TestCase):
+    """PASS 時の1行サマリの組み立て(チェック印・ファイル数・追加行・所要時間の整形)。"""
+
     def test_summarizes_checks_and_files(self):
-        d = gate._pass_detail([P("typecheck"), P("test")], 3)
+        d = gate._pass_detail([pass_result("typecheck"), pass_result("test")], 3)
         self.assertEqual(d, "typecheck✓ test✓ · 3 files")
 
     def test_unknown_check_uses_question_mark(self):
-        self.assertIn("test?", gate._pass_detail([U("test")], 0))
+        self.assertIn("test?", gate._pass_detail([unknown_result("test")], 0))
 
     def test_no_files_omits_files_clause(self):
-        self.assertEqual(gate._pass_detail([P("test")], 0), "test✓")
+        self.assertEqual(gate._pass_detail([pass_result("test")], 0), "test✓")
 
     def test_empty_is_none(self):
         self.assertIsNone(gate._pass_detail([], 0))
 
     def test_added_lines_appended(self):
-        d = gate._pass_detail([P("test")], 4, added=87)
+        d = gate._pass_detail([pass_result("test")], 4, added=87)
         self.assertEqual(d, "test✓ · 4 files(+87)")
 
     def test_elapsed_appended_as_mmss(self):
-        d = gate._pass_detail([P("test")], 0, wall_clock_s=135)
+        d = gate._pass_detail([pass_result("test")], 0, wall_clock_s=135)
         self.assertEqual(d, "test✓ · 2:15")
 
     def test_sub_second_elapsed_omitted(self):
         # 1秒未満は所要を載せない(ノイズ回避)
-        self.assertEqual(gate._pass_detail([P("test")], 0, wall_clock_s=0.4), "test✓")
+        self.assertEqual(gate._pass_detail([pass_result("test")], 0, wall_clock_s=0.4), "test✓")
 
 
 class TestFailDetail(unittest.TestCase):
+    """失敗通知の中身: 「…が失敗:」の後の核心1行を拾い、連続失敗回数を添える。"""
+
     def test_picks_core_error_after_failure_marker(self):
         summary = "✗ test が失敗:\nAssertionError: expected 42 got 41\n(more)"
         self.assertEqual(gate._fail_detail(summary), "AssertionError: expected 42 got 41")
@@ -189,6 +229,8 @@ class TestFailDetail(unittest.TestCase):
 
 
 class TestFailHeadline(unittest.TestCase):
+    """失敗の見出し: 要約の先頭の意味ある1行を返す(ESCALATE 行は飛ばす)。"""
+
     def test_first_meaningful_line(self):
         self.assertEqual(gate._fail_headline("✗ test が失敗:\nboom"), "✗ test が失敗:")
 
@@ -202,6 +244,8 @@ class TestFailHeadline(unittest.TestCase):
 
 
 class TestStopNotification(unittest.TestCase):
+    """Stop 時の通知意図: PASS/UNKNOWN/エスカレート FAIL は出し、通常 FAIL は無音。"""
+
     def test_pass(self):
         n = gate.stop_notification(common.PASS, escalate=False, cwd="/p", branch="main",
                                    pass_detail="test✓")

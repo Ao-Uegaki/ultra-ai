@@ -8,7 +8,7 @@ import learning  # noqa: E402
 
 
 class TestInstinctPredicates(unittest.TestCase):
-    """学習層のノイズ/品質ゲート(b+): harness 断片・空虚短文を弾く純述語。"""
+    """学習層のノイズ/品質ゲート(b+): Claude Code 本体由来の断片・空虚な短文を弾く純述語。"""
 
     def test_noise_markers_detected(self):
         self.assertTrue(learning.looks_like_noise("<task-notification> <task-id>x</task-id>"))
@@ -31,7 +31,7 @@ class TestInstinctPredicates(unittest.TestCase):
 
 
 class TestReadInstinctReusable(unittest.TestCase):
-    """read_learned_texts(reusable_only=...) の絞り込み(active 注入の防御)。"""
+    """read_learned_texts(reusable_only=...) の絞り込み(active 注入のガード)。"""
 
     def _write(self, d, body):
         p = Path(d) / "LEARNED.md"
